@@ -9,17 +9,16 @@ class simplNotas:
 	"""
 
 	def __init__(self, path_notas: str, path_faltas: str = ...) -> None:
-		self._notas = downcast(pd.read_fwf(path_notas, index_col=0))
-		self.notas = pd.DataFrame = self._notas
+		self._notas = downcast(pd.read_fwf(path_notas, index_col=0, ))
+		self.notas: pd.DataFrame = self._notas
 		self._faltas = downcast(
 			pd.read_fwf(path_faltas, header=None, index_col=0)
 			).infer_objects() if path_faltas is not None else None
 
-	def __rep_faltas(self, nome_aluno: str) -> bool:
+	def __rep_faltas(self, nome_aluno) -> bool:
 		"""
 		:return: True se reprovado
 		"""
-		reprovado = False
 		counts = self._faltas.loc[nome_aluno].value_counts()
 		match counts.size:
 			case 1: reprovado = not counts.index[0]
@@ -39,7 +38,7 @@ class simplNotas:
 			for Pn in self._notas.columns:
 				pesos[Pn] = 1
 		try:
-			sum_p = pd.Series([0 for i in self._notas.index], index=self._notas.index, name="media")
+			sum_p = pd.Series([0 for _ in self._notas.index], index=self._notas.index, name="media")
 			for nome, peso in pesos.items():
 				sum_p += self._notas[nome] * peso
 			return sum_p / sum(pesos.values())
@@ -48,20 +47,24 @@ class simplNotas:
 			return None
 
 	def rendimento(self, notas_finais: pd.Series):
-		rendimento = pd.Series([], name="rendimento")
+		calc_rendimento = pd.Series([], name="calc_rendimento")
 		for nome, nota in notas_finais.items():
 			match nota:
-				case _ if 10 >= nota >= 9.0: rendimento[nome] = "SS"
-				case _ if 9.0 > nota >= 7.0: rendimento[nome] = "MS"
-				case _ if 7.0 > nota >= 5.0: rendimento[nome] = "MM"
-				case _ if 5.0 > nota >= 3.0: rendimento[nome] = "MI"
-				case _ if 3.0 > nota > 0: rendimento[nome] = "II"
-				case _ if nota == 0: rendimento[nome] = "SR"
+				case _ if 10 >= nota >= 9.0: calc_rendimento[nome] = "SS"
+				case _ if 9.0 > nota >= 7.0: calc_rendimento[nome] = "MS"
+				case _ if 7.0 > nota >= 5.0: calc_rendimento[nome] = "MM"
+				case _ if 5.0 > nota >= 3.0: calc_rendimento[nome] = "MI"
+				case _ if 3.0 > nota > 0: calc_rendimento[nome] = "II"
+				case _ if nota == 0: calc_rendimento[nome] = "SR"
 			if self.__rep_faltas(nome):
-				rendimento[nome] = "SR"
-		return rendimento
+				calc_rendimento[nome] = "SR"
+		return calc_rendimento
 
 
 su = simplNotas('notas1.txt', 'faltas1.txt')
 media = su.get_media({"P1": 1, "P2": 2, 'P3': 2, 'P4': 3, 'P5': 3})
-print(su.rendimento(media))
+rendimento = su.rendimento(media)
+notas = su.notas
+notas["media"] = media
+notas["rendimento"] = rendimento
+print(notas.sort_values(by="media", ascending=False))

@@ -1,11 +1,11 @@
 ### Objetivos do projeto:
 
-- [ ] Calcular a média ponderada de todos os alunos
-  - [ ] atribuir as menções
-  - [ ] reorganizar a lista em ordem de *notas* [^1] (não de menção).
+- [x] Calcular a média ponderada de todos os alunos
+  - [x] atribuir as menções
+  - [x] reorganizar a lista em ordem de *notas* [^1] (não de menção).
 
-- [ ] Ler a lista de presença [1 significa presente, 0 falta]
-  - [ ] Reprovar automaticamente com SR alunos com 25% (ou mais) de faltas, não importando sua menção.
+- [x] Ler a lista de presença [1 significa presente, 0 falta]
+  - [x] Reprovar automaticamente com SR alunos com 25% (ou mais) de faltas, não importando sua menção.
 
 - [ ] Fazer a melhor análise que puder, para tentar mostrar se nesta turma em específico existe relação aparente entre a nota do aluno e o número de faltas.
 
