@@ -2,69 +2,182 @@ import pandas as pd
 from pdcast import downcast
 
 
-class simplNotas:
-	"""
-	:param path_notas: Caminho do arquivo de notas.
-	:param path_faltas: [Opcional] Caminho do arquivo de faltas.
-	"""
+class SimplifiedGrades:
 
-	def __init__(self, path_notas: str, path_faltas: str = ...) -> None:
-		self._notas = downcast(pd.read_fwf(path_notas, index_col=0, ))
-		self.notas: pd.DataFrame = self._notas
-		self._faltas = downcast(
-			pd.read_fwf(path_faltas, header=None, index_col=0)
-			).infer_objects() if path_faltas is not None else None
+	def __init__(
+		self, grades: pd.DataFrame | str = None,
+		absences: pd.DataFrame | str = None
+		) -> None:
+		"""
+		Parameters
+		----------
+		grades : pd.DataFrame or str, optional
+			The grades' data. If provided as a string, it should be the path to a file containing the grades' data.
+			If provided as a pd.DataFrame, it should be a dataframe containing the grades' data. (default: None)
 
-	def __rep_faltas(self, nome_aluno) -> bool:
+		absences : pd.DataFrame or str, optional
+			The absences' data. If provided as a string, it should be the path to a file containing the absences' data.
+			If provided as a pd.DataFrame, it should be a dataframe containing the absences' data. (default: None)
+
+		Notes
+		-----
+		Currently, the grades and absences parameters, when strings, assume the file contains a table of fixed-width
+		formatted lines.
 		"""
-		:return: True se reprovado
-		"""
-		counts = self._faltas.loc[nome_aluno].value_counts()
+		match grades:
+			case str(): self._grades = downcast(pd.read_fwf(grades, index_col=0))
+			case pd.DataFrame(): self._grades = downcast(grades)
+			case _: self.absences = None
+
+		match absences:
+			case str(): self._absences = downcast(pd.read_fwf(absences, header=None, index_col=0)).infer_objects()
+			case pd.DataFrame(): self._absences = absences.astype(bool)
+			case _: self._absences = None
+
+		self.grades: pd.DataFrame = \
+			self._grades if type(self._grades) is pd.DataFrame else pd.DataFrame(self._grades)
+
+		self.DEFAULT_WEIGHTS = self.__default_weights()
+
+	def __has_many_absences(self, student_name) -> bool:
+		counts = self._absences.loc[student_name].value_counts(normalize=True)
 		match counts.size:
-			case 1: reprovado = not counts.index[0]
-			case 2: reprovado = False if counts[True] / counts.sum() > .75 else True
-			case _: raise KeyError("Os valores na tabela de faltas está correta? ")
-		return reprovado
+			case 1:
+				failed = not counts.index[0]
+			case 2:
+				failed = False if counts[True] > .75 else True
+			case _:
+				raise KeyError("The values in the absences table are correct? ")
+		return failed
 
-	def get_media(self, pesos: dict = ...):
+	def __default_weights(self):
+		return {Pn: 1 for Pn in (self._grades.columns if type(self._grades) is pd.DataFrame else range(1))}
+
+	def get_avg_grade(self, weights: dict = None, push_grades: bool = True) -> pd.Series:
 		"""
-		Calcula a media ponderada para todos na turma.\n
-		{<colname>: <value>,...} para cada coluna na média
-		:param pesos: e.g.: {"P1": 1,"P2":2,...}
-		:return: pandas.Series com a media ponderada para todos os alunos
+		Parameters
+		----------
+		weights : dict, optional
+			The weights to be used for calculating the average grade. If not provided, default weights will be used.
+			The keys of the dictionary should be the names of the grades, and the values should be the corresponding
+			weights.
+			Default value is None.
+
+		push_grades : bool, optional
+			A flag indicating whether to update the 'avg' grade in the `self.grades` DataFrame with the calculated
+			average grade.
+			Default value is True.
+
+		Returns
+		-------
+		pd.Series
+			If successful, returns a pandas Series object containing the calculated average grade for each student.
+			If any of the grade names in `weights` are not found in `self._grades`, throws KeyError.
+
+		Examples
+		--------
+		Here is an example of how to calculate the average grades for a class:
+
+		>>> class_grades = pd.DataFrame({
+		...     'P1': [ 4.5,   6.7,  8.5 ],
+		...     'P2': [ 5.6,   7.8,  9.1 ]},
+		...     index=['John','Kate','Elijah'])
+		>>> test_weights = {'P1': 0.4, 'P2': 0.6}
+		>>> classGrades = SimplifiedGrades(class_grades)
+		>>> avg_grades = classGrades.get_avg_grade(weights)
+		>>> avg_grades
+		John      5.16
+		Kate      7.36
+		Elijah    8.86
+		Name: avg, dtype: float64
+
+		In this example, we have a DataFrame called `class_grades` with grades for 3 students John, Kate and Elijah
+		for two different tests 'P1' and 'P2'. We initialize a `SimplifiedGrades` object with this DataFrame.
+
+		We then calculate the average grade for each student using the `get_avg_grade` method of the
+		`SimplifiedGrades` class passing the test_weights dictionary. This will return a pandas Series with the
+		average grade for each student.
 		"""
-		if pesos is ...:
-			pesos = {}
-			for Pn in self._notas.columns:
-				pesos[Pn] = 1
+
+		if weights is None:
+			weights = self.__default_weights()
+
 		try:
-			sum_p = pd.Series([0 for _ in self._notas.index], index=self._notas.index, name="media")
-			for nome, peso in pesos.items():
-				sum_p += self._notas[nome] * peso
-			return sum_p / sum(pesos.values())
+			sum_p = pd.Series([0 for _ in self._grades.index], index=self._grades.index)
+			for name, weight in weights.items():
+				sum_p = sum_p.add(self._grades[name].mul(weight))
+			avg = sum_p.div(sum(weights.values())).round(2)
+			avg.name = 'avg'
+			if push_grades:
+				self.grades["avg"] = avg
+			return avg
 		except KeyError:
 			print(KeyError)
-			return None
 
-	def rendimento(self, notas_finais: pd.Series):
-		calc_rendimento = pd.Series([], name="calc_rendimento")
-		for nome, nota in notas_finais.items():
-			match nota:
-				case _ if 10 >= nota >= 9.0: calc_rendimento[nome] = "SS"
-				case _ if 9.0 > nota >= 7.0: calc_rendimento[nome] = "MS"
-				case _ if 7.0 > nota >= 5.0: calc_rendimento[nome] = "MM"
-				case _ if 5.0 > nota >= 3.0: calc_rendimento[nome] = "MI"
-				case _ if 3.0 > nota > 0: calc_rendimento[nome] = "II"
-				case _ if nota == 0: calc_rendimento[nome] = "SR"
-			if self.__rep_faltas(nome):
-				calc_rendimento[nome] = "SR"
-		return calc_rendimento
+	def get_performance(self, final_grades: pd.Series, push_grades: bool = False) -> pd.Series:
+		"""
+		This method takes the final grades of students and assigns performance grades.
 
+		Parameters
+		----------
+		final_grades : pandas.Series
+			A Series containing the final grades of students.
+		push_grades : bool, optional
+			A boolean indicating whether to push the performance grades to the 'perf' column in the
+			grades DataFrame, by default False
 
-su = simplNotas('notas1.txt', 'faltas1.txt')
-media = su.get_media({"P1": 1, "P2": 2, 'P3': 2, 'P4': 3, 'P5': 3})
-rendimento = su.rendimento(media)
-notas = su.notas
-notas["media"] = media
-notas["rendimento"] = rendimento
-print(notas.sort_values(by="media", ascending=False))
+		Returns
+		-------
+		pandas.Series
+			A pandas Series containing the performance grades of each student. The returned performance grades are
+			of type 'category' in order to optimize memory usage.
+
+		Notes
+		-----
+		The performance grade is assigned based on the following scale: \n
+		- If the grade is between 10.0 and 9.0 (inclusive), the performance grade is "SS".
+		- If the grade is between 9.0 and 7.0 (inclusive), the performance grade is "MS".
+		- If the grade is between 7.0 and 5.0 (inclusive), the performance grade is "MM".
+		- If the grade is between 5.0 and 3.0 (inclusive), the performance grade is "MI".
+		- If the grade is between 3.0 and 0.0 (exclusive), the performance grade is "II".
+		- If the grade is 0.0, the performance grade is "SR".
+		If a student has many absences, their performance grade is automatically set to "SR".
+		If push_grades is True, the performance grades will be pushed to the 'perf' column in the grades DataFrame.
+
+		Examples
+		--------
+		>>> class_grades = pd.DataFrame({
+		...     'P1': [ 4.5,   1.2,   6.7 ],
+		...     'P2': [ 9.1,   7.8,   8.9 ]},
+		...     index=['John','Kate','Elijah'])
+		>>> classGrades = SimplifiedGrades(class_grades)
+		>>> avg_grades = classGrades.get_avg_grade()
+		>>> classGrades.get_performance(avg_grades)
+		John      MM
+		Kate      MI
+		Elijah    MS
+		Name: performance, dtype: category
+		Categories (3, object): ['MI', 'MM', 'MS']
+		"""
+		performance = pd.Series([], name="performance")
+		for name, grade in final_grades.items():
+			match grade:
+				case _ if 10 >= grade >= 9.0: performance[name] = "SS"
+				case _ if 9.0 > grade >= 7.0: performance[name] = "MS"
+				case _ if 7.0 > grade >= 5.0: performance[name] = "MM"
+				case _ if 5.0 > grade >= 3.0: performance[name] = "MI"
+				case _ if 3.0 > grade > 0: performance[name] = "II"
+				case _ if grade == 0: performance[name] = "SR"
+			if self._absences is not None:
+				if self.__has_many_absences(name):
+					performance[name] = "SR"
+		if push_grades:
+			self.grades["perf"] = performance.astype("category")
+		return performance.astype("category")
+
+# grades = pd.DataFrame({'P1': [8.5, 7.2, 6.7], 'P2': [9.1, 7.8, 8.9]}, index=['John', 'Kate', 'Elijah'])
+# absences = pd.DataFrame({'John': [False, True, False], 'Kate': [False, False, True], 'Elijah': [False, False,
+# False]}).T
+# classGrades = SimplifiedGrades(grades, absences)
+# avg_grade = classGrades.get_avg_grade()
+# performance = classGrades.get_performance(avg_grade)
