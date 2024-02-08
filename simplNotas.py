@@ -5,7 +5,8 @@ from pdcast import downcast
 class SimplifiedGrades:
 
 	def __init__(
-		self, grades: pd.DataFrame | str = None,
+		self,
+		grades: pd.DataFrame | str = None,
 		absences: pd.DataFrame | str = None
 		) -> None:
 		"""
@@ -24,10 +25,11 @@ class SimplifiedGrades:
 		Currently, the grades and absences parameters, when strings, assume the file contains a table of fixed-width
 		formatted lines.
 		"""
+
 		match grades:
 			case str(): self._grades = downcast(pd.read_fwf(grades, index_col=0))
 			case pd.DataFrame(): self._grades = downcast(grades)
-			case _: self.absences = None
+			case _: self._grades = None
 
 		match absences:
 			case str(): self._absences = downcast(pd.read_fwf(absences, header=None, index_col=0).infer_objects())
@@ -39,12 +41,17 @@ class SimplifiedGrades:
 
 		self.DEFAULT_WEIGHTS = self.__default_weights()
 
+	def _get_attendance(self, student_name, normalize: bool = True):
+		if self._absences is not None and student_name in self._absences.index:  # check if DataFrame exists and contains the student_name
+			counts = self._absences.loc[student_name].astype(bool).value_counts(normalize=normalize)
+			match counts.size:
+				case 1 if counts.index[0]: return 1 if normalize else counts[0]
+				case 1 if not counts.index[0]: return 0 if not normalize else counts[0]
+				case 2: return counts[True]
+				case _: raise KeyError(f"The values in the absences table are correct? {str(counts.index)}")
+
 	def __has_many_absences(self, student_name) -> bool:
-		counts = self._absences.loc[student_name].value_counts(normalize=True)
-		match counts.size:
-			case 1: return not counts.index[0]
-			case 2: return False if counts[True] > .75 else True
-			case _: raise KeyError("The values in the absences table are correct? ")
+		return self._get_attendance(student_name, normalize=True) < .75
 
 	def __default_weights(self):
 		return {Pn: 1 for Pn in (self._grades.columns if type(self._grades) is pd.DataFrame else range(1))}
@@ -82,10 +89,10 @@ class SimplifiedGrades:
 		>>> classGrades = SimplifiedGrades(class_grades)
 		>>> avg_grades = classGrades.get_avg_grade(test_weights)
 		>>> avg_grades
-		John      5.16
-		Kate      7.36
 		Elijah    8.86
-		Name: avg, dtype: float64
+		Kate      7.36
+		John      5.16
+		Name: avg, dtype: float32
 
 		In this example, we have a DataFrame called `class_grades` with grades for 3 students John, Kate and Elijah
 		for two different tests 'P1' and 'P2'. We initialize a `SimplifiedGrades` object with this DataFrame.
@@ -105,12 +112,12 @@ class SimplifiedGrades:
 			avg.name = 'avg'
 			if push_grades:
 				self.grades["avg"] = avg
-			return avg
+			return downcast(avg.sort_values(ascending=False))
 		except KeyError:
 			print(KeyError)
 
 	@staticmethod
-	def _calculate_grade(grade):
+	def _calculate_grade(grade: float) -> str:
 		"""
 		Parameters
 		----------
@@ -174,9 +181,9 @@ class SimplifiedGrades:
 		>>> classGrades = SimplifiedGrades(class_grades)
 		>>> avg_grades = classGrades.get_avg_grade()
 		>>> classGrades.get_performance(avg_grades)
+		Elijah    MS
 		John      MM
 		Kate      MI
-		Elijah    MS
 		Name: performance, dtype: category
 		Categories (3, object): ['MI', 'MM', 'MS']
 		"""
@@ -184,7 +191,7 @@ class SimplifiedGrades:
 		for name, grade in final_grades.items():
 			performance[name] = self._calculate_grade(grade)
 
-			if self._absences:
+			if self._absences is not None:
 				if self.__has_many_absences(name):
 					performance[name] = "SR"
 
@@ -192,9 +199,9 @@ class SimplifiedGrades:
 			self.grades["perf"] = performance.astype("category")
 		return performance.astype("category")
 
-# grades = pd.DataFrame({'P1': [8.5, 7.2, 6.7], 'P2': [9.1, 7.8, 8.9]}, index=['John', 'Kate', 'Elijah'])
-# absences = pd.DataFrame({'John': [False, True, False], 'Kate': [False, False, True], 'Elijah': [False, False,
-# False]}).T
-# classGrades = SimplifiedGrades(grades, absences)
-# avg_grade = classGrades.get_avg_grade()
-# performance = classGrades.get_performance(avg_grade)
+	def get_attendances(self, push_attendances=True):
+		attendances = pd.Series([], name="attendances")
+		for name in self._absences.index:
+			attendances[name] = self._get_attendance(name)
+		if push_attendances:
+			self.grades["att"] = attendances.round(3)
