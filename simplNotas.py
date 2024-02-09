@@ -42,11 +42,12 @@ class SimplifiedGrades:
 		self.DEFAULT_WEIGHTS = self.__default_weights()
 
 	def _get_attendance(self, student_name, normalize: bool = True):
-		if self._absences is not None and student_name in self._absences.index:  # check if DataFrame exists and contains the student_name
+		if self._absences is not None and student_name in self._absences.index:  # check if DataFrame exists and
+			# contains the student_name
 			counts = self._absences.loc[student_name].astype(bool).value_counts(normalize=normalize)
 			match counts.size:
 				case 1 if counts.index[0]: return 1 if normalize else counts[0]
-				case 1 if not counts.index[0]: return 0 if not normalize else counts[0]
+				case 1 if not counts.index[0]: return 0
 				case 2: return counts[True]
 				case _: raise KeyError(f"The values in the absences table are correct? {str(counts.index)}")
 
@@ -56,27 +57,42 @@ class SimplifiedGrades:
 	def __default_weights(self):
 		return {Pn: 1 for Pn in (self._grades.columns if type(self._grades) is pd.DataFrame else range(1))}
 
-	def get_avg_grade(self, weights: dict = None, push_grades: bool = True) -> pd.Series:
+	def get_avg_grade(
+		self,
+		weights: dict = None,
+		inplace: bool = True,
+		name: str = "avg"
+		) -> pd.Series:
 		"""
 		Parameters
 		----------
+
 		weights : dict, optional
 			The weights to be used for calculating the average grade. If not provided, default weights will be used.
 			The keys of the dictionary should be the names of the grades, and the values should be the corresponding
 			weights.
 			Default value is None.
 
-		push_grades : bool, optional
+		inplace : bool, optional
 			A flag indicating whether to update the 'avg' grade in the `self.grades` DataFrame with the calculated
 			average grade.
 			Default value is True.
 
+		name : str, optional
+			Name assigned to the generated Series.
+
+
 		Returns
 		-------
 		pd.Series
-			If successful, returns a pandas Series object containing the calculated average grade for each student.
-			If any of the grade names in `weights` are not found in `self._grades`, throws KeyError.
+			- returns a pandas Series object containing the calculated average grade for each student.
 
+			- if inplace == True, appends the resulting Series to grades and returns None
+
+		Raises
+		------
+		KeyError
+			If any keys in `weights` are not in `_grades.columns`,
 		Examples
 		--------
 		Here is an example of how to calculate the average grades for a class:
@@ -104,20 +120,20 @@ class SimplifiedGrades:
 
 		if weights is None:
 			weights = self.__default_weights()
-		try:
-			weighted_sum = pd.Series([0 for _ in self._grades.index], index=self._grades.index)
-			for name, weight in weights.items():
-				weighted_sum = weighted_sum.add(self._grades[name].mul(weight))
-			avg = weighted_sum.div(sum(weights.values())).round(2)
-			avg.name = 'avg'
-			if push_grades:
-				self.grades["avg"] = avg
+
+		weighted_sum = pd.Series([0 for _ in self._grades.index], index=self._grades.index)
+		for colName, weight in weights.items():
+			weighted_sum = weighted_sum.add(self._grades[colName].mul(weight))
+
+		avg = weighted_sum.div(sum(weights.values())).round(2)
+		avg.name = name
+		if inplace:
+			self.grades = self.grades.join(avg, validate='1:1')
+		else:
 			return downcast(avg.sort_values(ascending=False))
-		except KeyError:
-			print(KeyError)
 
 	@staticmethod
-	def _calculate_grade(grade: float) -> str:
+	def calculate_grade(grade: float) -> str:
 		"""
 		Parameters
 		----------
@@ -142,23 +158,31 @@ class SimplifiedGrades:
 
 		return performance
 
-	def get_performance(self, final_grades: pd.Series, push_grades: bool = False) -> pd.Series:
+	def get_performance(
+		self,
+		final_grades: pd.Series,
+		inplace: bool = False,
+		name: str = "perf"
+		) -> pd.Series:
 		"""
-		This method takes the final grades of students and assigns performance grades.
-
 		Parameters
 		----------
 		final_grades : pandas.Series
-			A Series containing the final grades of students.
-		push_grades : bool, optional
-			A boolean indicating whether to push the performance grades to the 'perf' column in the
-			grades DataFrame, by default False
+			A pandas Series containing final grades.
 
+		inplace : bool, optional
+			Flag indicating whether to add the generated Series to the grades DataFrame
+			in-place or return it. Defaults to False.
+		
+		name : str, optional
+			Name assigned to the generated Series
+			
 		Returns
 		-------
 		pandas.Series
-			A pandas Series containing the performance grades of each student. The returned performance grades are
-			of type 'category' in order to optimize memory usage.
+			A pandas Series containing performance grades.
+
+			- If inplace is True, it returns None.
 
 		Notes
 		-----
@@ -170,7 +194,7 @@ class SimplifiedGrades:
 		- If the grade is between 3.0 and 0.0 (exclusive), the performance grade is "II".
 		- If the grade is 0.0, the performance grade is "SR".
 		If a student has many absences, their performance grade is automatically set to "SR".
-		If push_grades is True, the performance grades will be pushed to the 'perf' column in the grades DataFrame.
+		If inplace is True, the performance grades will be pushed to the 'perf' column in the grades DataFrame.
 
 		Examples
 		--------
@@ -186,22 +210,74 @@ class SimplifiedGrades:
 		Kate      MI
 		Name: performance, dtype: category
 		Categories (3, object): ['MI', 'MM', 'MS']
-		"""
-		performance = pd.Series([], name="performance")
+"""
+		performance = pd.Series([], name=name)
 		for name, grade in final_grades.items():
-			performance[name] = self._calculate_grade(grade)
+			performance[name] = self.calculate_grade(grade)
 
 			if self._absences is not None:
 				if self.__has_many_absences(name):
 					performance[name] = "SR"
+		performance = performance.astype("category")
+		if inplace:
+			self.grades = self.grades.join(performance, validate="1:1")
+		else:
+			return performance
 
-		if push_grades:
-			self.grades["perf"] = performance.astype("category")
-		return performance.astype("category")
+	def get_attendances(
+		self,
+		inplace=False,
+		name: str="att[%]"
+		) -> pd.Series:
+		"""
+		Parameters
+		----------
 
-	def get_attendances(self, push_attendances=True):
-		attendances = pd.Series([], name="attendances")
+		name : str, optional
+			Name assigned to the generated Series
+
+		inplace : bool, optional
+			Flag indicating whether to add the generated Series to the grades DataFrame
+			in-place or return it. Defaults to False.
+
+		Returns
+		-------
+		attendances : pandas.Series or None
+			Series containing attendances percentages for each name in the _absences index.
+
+			- If inplace is True, it returns None.
+
+		Examples
+		--------
+		>>> class_grades_table = pd.DataFrame({
+		...     'P1':[10,4.8,7.4],
+		...     'P2':[7.3,3.4,5.6]},
+		...    index=['John', 'Jane', 'Mike'])
+		>>> class_attendance_table = pd.DataFrame({
+		...     'John':[1,0,0,1,1,0,1],
+		...     'Jane':[0,1,0,0,1,1,1],
+		...     'Mike':[0,1,0,0,1,1,0]}).T
+		>>> class_attendance_table.index=['John', 'Jane', 'Mike']
+		>>> class_data = SimplifiedGrades(class_grades_table, class_attendance_table)
+		>>> class_data.get_attendances(inplace=True)
+		>>> class_data.grades
+			P1   P2  att[%]
+		John  10.0  7.3    57.1
+		Jane   4.8  3.4    57.1
+		Mike   7.4  5.6    42.9
+
+		>>> class_data.get_attendances()
+		John    57.1
+		Jane    57.1
+		Mike    42.9
+		Name: attendances, dtype: float64
+		"""
+
+		attendances = pd.Series([], name=name)
 		for name in self._absences.index:
 			attendances[name] = self._get_attendance(name)
-		if push_attendances:
-			self.grades["att"] = attendances.round(3)
+		attendances = attendances.round(3) * 100
+		if inplace:
+			self.grades = self.grades.join(attendances)
+		else:
+			return attendances
