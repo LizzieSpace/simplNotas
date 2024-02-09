@@ -33,4 +33,4 @@ for name, files in testfiles.items():
 		ylabel="Nota"
 		)
 
-# plt.show()
+plt.show()
