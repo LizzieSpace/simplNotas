@@ -199,9 +199,10 @@ class SimplifiedGrades:
 			self.grades["perf"] = performance.astype("category")
 		return performance.astype("category")
 
-  def correla(i, j):
-    cor = pd.DataFrame.corr(i,j)
-    return cor 
+  	def correla(avg_grades, j):
+	''' j deve ser o número de faltas de cada estudante '''
+   		 cor = pd.DataFrame.corr(avg_grades,j)
+    		return cor
 
 	def get_attendances(self, push_attendances=True):
 		attendances = pd.Series([], name="attendances")
